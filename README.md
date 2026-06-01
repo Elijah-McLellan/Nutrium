@@ -1,4 +1,4 @@
-![logo](/www/Assets/logo.svg)
+<img src="/www/Assets/logo.svg" width="30">
 ![](https://shields.io/badge/Open-source-brightgreen) ![](https://shields.io/badge/License-MIT-blue)
 
 ## Nutrium 🐾

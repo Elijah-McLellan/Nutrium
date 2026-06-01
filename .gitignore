@@ -1,0 +1,25 @@
+# Node stuff
+node_modules/
+package-lock.json
+
+# Capacitor build outputs
+android/app/build/
+android/app/release/
+android/.gradle/
+android/build/
+android/app/.externalNativeBuild/
+android/capacitor-cordova-android-plugins/
+
+# Android Studio messy files
+android/.idea/
+android/local.properties
+*.iml
+
+# OS garbage
+.DS_Store
+Thumbs.db
+
+# Don't track the compiled web code if you want CI to build it, 
+# but for a single-file app, it's actually fine to track www/
+# Uncomment the next line if you prefer not to track it:
+# www/

@@ -1,9 +1,10 @@
-<center><img src="/www/Assets/logo.svg" width="200">
+<div align="center">
+    <img src="/www/Assets/logo.svg" width="200" style="border-radius:50px;">
 
 ![](https://shields.io/badge/Open-source-brightgreen) ![](https://shields.io/badge/License-MIT-blue)
-</center>
 
-## Nutrium 🐾
+<h1>Nutrium🐾</h1>
+</div>
 
 The nutrition & workout tracker for the fluffy ones~
 

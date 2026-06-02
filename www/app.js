@@ -435,20 +435,39 @@ function finishOnboarding() {
 }
 
 /* ========================================
-   EXPORT & IMPORT
+   EXPORT & IMPORT (BULLETPROOF VANILLA JS)
    ======================================== */
 function exportData() {
   const dataStr = JSON.stringify(state, null, 2);
+  const fileName = "nutrium-backup-" + todayKey() + ".json";
+  
+  // Attempt standard Web Download
   const blob = new Blob([dataStr], { type: "application/json" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = "nutrium-backup-" + todayKey() + ".json";
+  a.download = fileName;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
-  toast("Backup downloaded!");
+
+  // Since Android WebView sometimes hides downloads, we open a modal 
+  // with a Copy button and text box so the user NEVER loses their data.
+  openModal("Export Backup", `
+    <p style="font-size:12px;color:var(--muted);margin-bottom:8px">If the file didn't automatically save to your Downloads, copy the text below and paste it into a file named <strong>${fileName}</strong></p>
+    <button onclick="copyBackupToClipboard()" class="btn-accent btn-sm" style="width:100%;margin-bottom:12px"><i class="fa-solid fa-copy" style="margin-right:4px"></i> Copy to Clipboard</button>
+    <textarea id="backup-text" style="width:100%;height:200px;background:var(--card2);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:10px;font-size:11px;font-family:monospace;resize:none;" readonly>${dataStr.replace(/</g, '&lt;')}</textarea>
+  `);
+}
+
+function copyBackupToClipboard() {
+  const text = document.getElementById("backup-text").value;
+  navigator.clipboard.writeText(text).then(() => {
+    toast("Copied to clipboard!");
+  }).catch(() => {
+    toast("Failed to copy", "error");
+  });
 }
 
 function importData(event) {
@@ -468,6 +487,7 @@ function importData(event) {
       if (parsed.recentFoods) state.recentFoods = parsed.recentFoods;
       save();
       applyTheme(state.profile.theme);
+      closeModal();
       toast("Data restored successfully!");
       switchView("today");
     } catch(err) {

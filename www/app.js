@@ -90,6 +90,7 @@ const THEMES = [
    STATE & SAFE STORAGE (Capacitor Preferences)
    ======================================== */
 let state = {
+  isOnboarded: false,
   currentView: "today",
   selectedDate: dateKey(new Date()),
   profile: { calorieTarget:2200, proteinTarget:150, carbTarget:250, fatTarget:73, waterTarget:8, theme:"mono", notifEnabled:false },
@@ -100,7 +101,6 @@ let state = {
   recentFoods: []
 };
 
-// Use Capacitor Preferences if in native app, fallback to localStorage for web testing
 const Pref = (window.Capacitor && window.Capacitor.Preferences) ? window.Capacitor.Preferences : null;
 
 async function save() {
@@ -124,6 +124,7 @@ async function load() {
   if (!rawData) return;
   try {
     const parsed = JSON.parse(rawData);
+    if (parsed.isOnboarded !== undefined) state.isOnboarded = parsed.isOnboarded;
     if (parsed.profile) state.profile = { ...state.profile, ...parsed.profile };
     if (parsed.dailyLogs) state.dailyLogs = parsed.dailyLogs;
     if (parsed.weightLog) state.weightLog = parsed.weightLog;
@@ -131,7 +132,9 @@ async function load() {
     if (parsed.mealTemplates) state.mealTemplates = parsed.mealTemplates;
     if (parsed.recentFoods) state.recentFoods = parsed.recentFoods;
     if (parsed.selectedDate) state.selectedDate = parsed.selectedDate;
-  } catch(e) { console.error("Failed to parse save data", e); }
+  } catch(e) {
+    console.error("Failed to parse save data", e);
+  }
 }
 
 /* ========================================
@@ -146,6 +149,7 @@ function getDayLog(dk) {
   }
   return state.dailyLogs[dk];
 }
+
 function setDayLog(dk, log) { state.dailyLogs[dk] = log; save(); }
 
 function fmt(n) { return n < 10 ? n.toFixed(1) : Math.round(n).toString(); }
@@ -230,7 +234,6 @@ document.getElementById("modal-overlay").addEventListener("click", closeModal);
 document.getElementById("modal-close").addEventListener("click", closeModal);
 document.addEventListener("keydown", function(e) { if (e.key === "Escape") closeModal(); });
 
-// Swipe to dismiss modal
 (function() {
   var startY = 0;
   var sheet = document.getElementById("modal-sheet");
@@ -288,7 +291,7 @@ function changeDate(offset) {
 }
 
 /* ========================================
-   SVG RING & MACRO BAR
+   SVG RING & MACRO BAR & WATER
    ======================================== */
 function makeRing(pct, sz, sw) {
   sz = sz || 170; sw = sw || 10;
@@ -322,6 +325,159 @@ function waterGlassesHTML(current, target) {
 }
 
 /* ========================================
+   ONBOARDING & TDEE CALCULATOR
+   ======================================== */
+function renderOnboarding() {
+  document.getElementById("app-header").style.display = "none";
+  document.getElementById("bottom-nav").style.display = "none";
+  document.getElementById("app-main").style.display = "none";
+  
+  var el = document.getElementById("view-onboarding");
+  el.classList.add("active");
+  el.innerHTML = `
+    <div class="onboard-logo"><i class="fa-solid fa-paw"></i></div>
+    <h2 style="font-weight:800;font-size:22px;text-align:center;margin-bottom:4px">Welcome to Nutrium</h2>
+    <p style="font-size:13px;color:var(--muted);text-align:center;margin-bottom:20px">Let's estimate your daily targets, fluffy~</p>
+    
+    <div class="onboard-form">
+      <div class="input-group">
+        <label>Sex</label>
+        <div class="radio-group">
+          <button class="radio-btn active" data-field="sex" data-val="M">Male</button>
+          <button class="radio-btn" data-field="sex" data-val="F">Female</button>
+        </div>
+      </div>
+      <div class="input-group"><label>Age</label><input type="number" id="ob-age" class="input-field" placeholder="e.g. 24" min="14" max="99"></div>
+      <div class="input-group"><label>Height (cm)</label><input type="number" id="ob-height" class="input-field" placeholder="e.g. 175" min="100" max="250"></div>
+      <div class="input-group"><label>Weight (kg)</label><input type="number" id="ob-weight" class="input-field" placeholder="e.g. 70" min="30" max="300"></div>
+      <div class="input-group"><label>Body Fat % (Optional - improves accuracy)</label><input type="number" id="ob-bf" class="input-field" placeholder="e.g. 15" min="3" max="60"></div>
+      
+      <div class="input-group">
+        <label>Activity Level</label>
+        <div class="radio-group" style="flex-wrap:wrap">
+          <button class="radio-btn" data-field="activity" data-val="1.2" style="font-size:10px">Sedentary</button>
+          <button class="radio-btn" data-field="activity" data-val="1.375" style="font-size:10px">Light</button>
+          <button class="radio-btn active" data-field="activity" data-val="1.55" style="font-size:10px">Moderate</button>
+          <button class="radio-btn" data-field="activity" data-val="1.725" style="font-size:10px">Active</button>
+        </div>
+      </div>
+
+      <div class="input-group">
+        <label>Goal</label>
+        <div class="radio-group">
+          <button class="radio-btn" data-field="goal" data-val="lose">Lose</button>
+          <button class="radio-btn active" data-field="goal" data-val="maintain">Maintain</button>
+          <button class="radio-btn" data-field="goal" data-val="gain">Gain</button>
+        </div>
+      </div>
+
+      <button onclick="calculateGoals()" class="btn-accent" style="width:100%;margin-top:10px">Calculate & Start</button>
+      <button onclick="skipOnboarding()" class="btn-ghost" style="width:100%;margin-top:8px">Skip & Use Defaults</button>
+    </div>
+  `;
+
+  el.querySelectorAll(".radio-btn").forEach(function(btn) {
+    btn.addEventListener("click", function() {
+      var field = this.dataset.field;
+      el.querySelectorAll('.radio-btn[data-field="'+field+'"]').forEach(function(b) { b.classList.remove("active"); });
+      this.classList.add("active");
+    });
+  });
+}
+
+function calculateGoals() {
+  var sex = document.querySelector('.radio-btn[data-field="sex"].active')?.dataset.val || 'M';
+  var age = parseFloat(document.getElementById("ob-age").value) || 25;
+  var height = parseFloat(document.getElementById("ob-height").value) || 175;
+  var weight = parseFloat(document.getElementById("ob-weight").value) || 70;
+  var bf = parseFloat(document.getElementById("ob-bf").value) || 0;
+  var activity = parseFloat(document.querySelector('.radio-btn[data-field="activity"].active')?.dataset.val) || 1.55;
+  var goal = document.querySelector('.radio-btn[data-field="goal"].active')?.dataset.val || 'maintain';
+
+  var bmr;
+  if (bf > 0) {
+    bmr = 370 + (21.6 * (weight * (1 - (bf / 100))));
+  } else {
+    if (sex === 'M') bmr = (10 * weight) + (6.25 * height) - (5 * age) + 5;
+    else bmr = (10 * weight) + (6.25 * height) - (5 * age) - 161;
+  }
+
+  var tdee = bmr * activity;
+  if (goal === 'lose') tdee -= 500;
+  if (goal === 'gain') tdee += 300;
+  tdee = Math.max(1200, Math.round(tdee));
+
+  var protein = Math.round(weight * 2);
+  var fat = Math.round(weight * 1);
+  var proteinCal = protein * 4;
+  var fatCal = fat * 9;
+  var carbCal = tdee - proteinCal - fatCal;
+  var carbs = Math.max(50, Math.round(carbCal / 4));
+
+  state.profile.calorieTarget = tdee;
+  state.profile.proteinTarget = protein;
+  state.profile.carbTarget = carbs;
+  state.profile.fatTarget = fat;
+  
+  finishOnboarding();
+}
+
+function skipOnboarding() { finishOnboarding(); }
+
+function finishOnboarding() {
+  state.isOnboarded = true;
+  save();
+  document.getElementById("app-header").style.display = "flex";
+  document.getElementById("bottom-nav").style.display = "flex";
+  document.getElementById("app-main").style.display = "block";
+  document.getElementById("view-onboarding").classList.remove("active");
+  switchView("today");
+}
+
+/* ========================================
+   EXPORT & IMPORT
+   ======================================== */
+function exportData() {
+  const dataStr = JSON.stringify(state, null, 2);
+  const blob = new Blob([dataStr], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "nutrium-backup-" + todayKey() + ".json";
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  toast("Backup downloaded!");
+}
+
+function importData(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    try {
+      const parsed = JSON.parse(e.target.result);
+      if (!parsed.profile) throw new Error("Invalid backup");
+      state.isOnboarded = true; 
+      if (parsed.profile) state.profile = { ...state.profile, ...parsed.profile };
+      if (parsed.dailyLogs) state.dailyLogs = parsed.dailyLogs; 
+      if (parsed.weightLog) state.weightLog = parsed.weightLog;
+      if (parsed.customFoods) state.customFoods = parsed.customFoods; 
+      if (parsed.mealTemplates) state.mealTemplates = parsed.mealTemplates;
+      if (parsed.recentFoods) state.recentFoods = parsed.recentFoods;
+      save();
+      applyTheme(state.profile.theme);
+      toast("Data restored successfully!");
+      switchView("today");
+    } catch(err) {
+      toast("Invalid backup file", "error");
+    }
+  };
+  reader.readAsText(file);
+}
+
+/* ========================================
    RENDER: TODAY
    ======================================== */
 function renderToday() {
@@ -343,7 +499,6 @@ function renderToday() {
     html += '<button onclick="state.selectedDate=todayKey();save();render()" class="btn-ghost btn-sm" style="width:100%;margin-bottom:8px">Back to Today</button>';
   }
 
-  // Calorie ring
   html += '<div class="card" style="text-align:center">';
   if (streak > 1) html += '<div style="font-size:11px;color:var(--accent);margin-bottom:6px;font-weight:600">' + streak + '-day streak! Keep going, good kitty~</div>';
   html += '<div class="ring-container">' + makeRing(calPct) +
@@ -355,13 +510,11 @@ function renderToday() {
   if (hitAll) html += '<div style="margin-top:8px;font-size:12px;color:var(--accent);font-weight:600">Purrfect! All targets hit</div>';
   html += '</div>';
 
-  // Macros
   html += '<div class="card">' +
     macroBar("Protein", t.p, pr.proteinTarget, "var(--protein)") +
     macroBar("Carbs", t.c, pr.carbTarget, "var(--carbs)") +
     macroBar("Fat", t.f, pr.fatTarget, "var(--fat)") + '</div>';
 
-  // Water
   html += '<div class="card"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">' +
     '<div style="font-weight:700;font-size:13px"><i class="fa-solid fa-droplet" style="margin-right:4px"></i>Hydration' +
     (water >= pr.waterTarget ? ' — Purrfect~' : '') + '</div>' +
@@ -371,14 +524,12 @@ function renderToday() {
     '<button onclick="addWater(-1)" class="btn-ghost btn-sm"' + (water <= 0 ? ' disabled style="opacity:.3"' : '') + '><i class="fa-solid fa-minus"></i></button>' +
     '<button onclick="addWater(1)" class="btn-accent btn-sm"><i class="fa-solid fa-plus"></i> Glass</button></div></div>';
 
-  // Meals
   html += '<div style="margin-top:2px"><div style="font-weight:700;font-size:14px;margin-bottom:8px">Meals</div>';
   for (var mi = 0; mi < MEAL_TYPES.length; mi++) {
     html += renderMeal(dk, MEAL_TYPES[mi], log.meals[MEAL_TYPES[mi].key] || []);
   }
   html += '</div>';
 
-  // Workouts summary
   if (log.workouts && log.workouts.length > 0) {
     html += '<div class="card" style="margin-top:4px"><div style="font-weight:700;font-size:13px;margin-bottom:6px"><i class="fa-solid fa-dumbbell" style="margin-right:4px"></i>Today\'s Sweat</div>';
     for (var wi = 0; wi < log.workouts.length; wi++) {
@@ -391,8 +542,6 @@ function renderToday() {
 
   document.getElementById("view-today").innerHTML = html;
   document.getElementById("header-date").textContent = fmtDate(dk);
-
-  // Bind water glass clicks
   document.querySelectorAll("#water-glasses .water-glass").forEach(function(g) {
     g.addEventListener("click", function() { toggleWater(parseInt(this.dataset.glass)); });
   });
@@ -429,9 +578,6 @@ function renderMeal(dk, mt, items) {
   return html;
 }
 
-/* ========================================
-   WATER HANDLERS
-   ======================================== */
 function toggleWater(idx) {
   var dk = state.selectedDate, log = getDayLog(dk), w = log.water || 0;
   log.water = idx < w ? idx : idx + 1;
@@ -550,7 +696,6 @@ function rmFood(dk, mk, idx) {
   }
 }
 
-/* ===== CUSTOM FOOD ===== */
 function openCustomFood(dk, mk) {
   var body = '<div style="margin-bottom:10px"><label style="font-size:11px;font-weight:600;display:block;margin-bottom:3px">Name</label><input type="text" id="cfn" class="input-field" placeholder="e.g. Secret Family Recipe"></div>' +
     '<div style="margin-bottom:10px"><label style="font-size:11px;font-weight:600;display:block;margin-bottom:3px">Serving</label><input type="text" id="cfs" class="input-field" placeholder="e.g. 1 bowl (250g)"></div>' +
@@ -577,7 +722,6 @@ function saveCustomFood(dk, mk) {
   closeModal(); toast(n + " created & added"); render();
 }
 
-/* ===== MEAL TEMPLATES ===== */
 function openSaveTemplate(dk, mk) {
   var log = getDayLog(dk), items = log.meals[mk] || [];
   if (items.length === 0) { toast("Add some foods first, furry~", "error"); return; }
@@ -743,6 +887,7 @@ function addExToWorkout(wi, eid) {
 function openCopyWorkout(wi) {
   openModal("Copy Workout", '<p style="font-size:12px;color:var(--muted);margin-bottom:10px">Copy this workout to another date, kitty~</p><div style="margin-bottom:12px"><label style="font-size:11px;font-weight:600;display:block;margin-bottom:3px">Target Date</label><input type="date" id="copydate" class="input-field" value="' + state.selectedDate + '"></div><button onclick="doCopyWorkout(' + wi + ')" class="btn-accent" style="width:100%">Copy Workout</button>');
 }
+
 function doCopyWorkout(wi) {
   var targetDk = document.getElementById("copydate").value; if (!targetDk) { toast("Pick a date~", "error"); return; }
   var log = getDayLog(state.selectedDate), w = log.workouts[wi]; if (!w) return;
@@ -760,21 +905,17 @@ function renderYou() {
   var d7 = []; for (var i = 6; i >= 0; i--) { var d = new Date(); d.setDate(d.getDate() - i); d7.push(dateKey(d)); }
   var t7 = {cal:0,p:0,c:0,f:0,n:0}; d7.forEach(function(dk) { var t = dayTotals(dk); if(t.cal>0){t7.cal+=t.cal;t7.p+=t.p;t7.c+=t.c;t7.f+=t.f;t7.n++;} });
 
-  var html = '<div class="card" style="text-align:center"><div style="width:56px;height:56px;border-radius:50%;background:var(--accent-dim);border:2px solid var(--accent);display:flex;align-items:center;justify-content:center;margin:0 auto 8px"><i class="fa-solid fa-paw" style="font-size:22px;color:var(--accent)"></i></div>' +
-    '<div style="font-weight:800;font-size:16px">Your Den</div><div style="font-size:12px;color:var(--muted);margin-top:2px">Who\'s a good kitty? You are~</div>';
+  var html = '<div class="card" style="text-align:center"><div style="width:56px;height:56px;border-radius:50%;background:var(--accent-dim);border:2px solid var(--accent);display:flex;align-items:center;justify-content:center;margin:0 auto 8px"><i class="fa-solid fa-paw" style="font-size:22px;color:var(--accent)"></i></div><div style="font-weight:800;font-size:16px">Your Den</div><div style="font-size:12px;color:var(--muted);margin-top:2px">Who\'s a good kitty? You are~</div>';
   if (streak > 1) html += '<div style="margin-top:6px;font-size:11px;color:var(--accent);font-weight:600"><i class="fa-solid fa-fire" style="margin-right:3px"></i>' + streak + '-day streak! Boykisser energy~</div>';
   html += '</div>';
 
-  // Themes
   html += '<div class="card"><div style="font-weight:700;font-size:13px;margin-bottom:8px"><i class="fa-solid fa-palette" style="margin-right:4px"></i>Vibe Check</div><div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap" id="theme-dots">';
   for (var ti = 0; ti < THEMES.length; ti++) { var th = THEMES[ti]; html += '<div style="display:flex;flex-direction:column;align-items:center;gap:3px"><div class="theme-dot' + (pr.theme === th.key ? ' active' : '') + '" data-theme="' + th.key + '" style="background:' + th.color + '"></div><span style="font-size:9px;color:var(--muted)">' + th.label + '</span></div>'; }
   html += '</div></div>';
 
-  // Targets
   html += '<div class="card"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px"><div style="font-weight:700;font-size:13px"><i class="fa-solid fa-bullseye" style="margin-right:4px"></i>Daily Targets</div><button onclick="openEditTargets()" class="btn-icon"><i class="fa-solid fa-pen"></i></button></div>' +
     '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px"><div class="stat-box"><div style="font-size:18px;font-weight:800">' + fmtC(pr.calorieTarget) + '</div><div style="font-size:10px;color:var(--muted)">Calories</div></div><div class="stat-box"><div style="font-size:16px;font-weight:700;color:var(--protein)">' + fmt(pr.proteinTarget) + 'g</div><div style="font-size:10px;color:var(--muted)">Protein</div></div><div class="stat-box"><div style="font-size:16px;font-weight:700;color:var(--carbs)">' + fmt(pr.carbTarget) + 'g</div><div style="font-size:10px;color:var(--muted)">Carbs</div></div><div class="stat-box"><div style="font-size:16px;font-weight:700;color:var(--fat)">' + fmt(pr.fatTarget) + 'g</div><div style="font-size:10px;color:var(--muted)">Fat</div></div></div></div>';
 
-  // Weight
   html += '<div class="card"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px"><div style="font-weight:700;font-size:13px"><i class="fa-solid fa-weight-scale" style="margin-right:4px"></i>Floof Scale</div><button onclick="openLogWeight()" class="btn-ghost btn-sm">Log Weight</button></div>';
   if (wl.length > 0) {
     html += '<div style="height:150px;position:relative"><canvas id="wchart"></canvas></div><div style="margin-top:6px;max-height:100px;overflow-y:auto">';
@@ -784,25 +925,23 @@ function renderYou() {
   } else { html += '<div style="text-align:center;padding:14px;color:var(--muted);font-size:12px">No weigh-ins yet... step on the scale, fuzzy~</div>'; }
   html += '</div>';
 
-  // 7 Day Avg
   html += '<div class="card"><div style="font-weight:700;font-size:13px;margin-bottom:8px"><i class="fa-solid fa-chart-line" style="margin-right:4px"></i>7-Day Avg</div>';
   if (t7.n > 0) {
     html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px"><div class="stat-box"><div style="font-size:15px;font-weight:700">' + fmtC(t7.cal / t7.n) + '</div><div style="font-size:10px;color:var(--muted)">avg cal</div></div><div class="stat-box"><div style="font-size:14px;font-weight:700;color:var(--protein)">' + fmt(t7.p / t7.n) + 'g</div><div style="font-size:10px;color:var(--muted)">avg protein</div></div><div class="stat-box"><div style="font-size:14px;font-weight:700;color:var(--carbs)">' + fmt(t7.c / t7.n) + 'g</div><div style="font-size:10px;color:var(--muted)">avg carbs</div></div><div class="stat-box"><div style="font-size:14px;font-weight:700;color:var(--fat)">' + fmt(t7.f / t7.n) + 'g</div><div style="font-size:10px;color:var(--muted)">avg fat</div></div></div>';
   } else { html += '<div style="text-align:center;padding:10px;color:var(--muted);font-size:12px">No data this week yet</div>'; }
   html += '</div>';
 
-  // Notifications
   html += '<div class="card"><div style="font-weight:700;font-size:13px;margin-bottom:8px"><i class="fa-solid fa-bell" style="margin-right:4px"></i>Reminders</div>' +
     '<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border)"><div><div style="font-size:13px;font-weight:600">Water Reminders</div><div style="font-size:11px;color:var(--muted)">Every 2 hours while app is open</div></div><button onclick="toggleNotif()" class="btn-ghost btn-sm" style="color:' + (pr.notifEnabled ? 'var(--accent)' : 'var(--muted)') + '">' + (pr.notifEnabled ? 'On' : 'Off') + '</button></div>' +
     '<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0"><div><div style="font-size:13px;font-weight:600">Weekly Weigh-In</div><div style="font-size:11px;color:var(--muted)">Sunday morning reminder</div></div><button onclick="toggleNotif()" class="btn-ghost btn-sm" style="color:' + (pr.notifEnabled ? 'var(--accent)' : 'var(--muted)') + '">' + (pr.notifEnabled ? 'On' : 'Off') + '</button></div></div>';
 
+  html += '<div class="card backup-card"><div style="font-weight:700;font-size:13px;margin-bottom:8px"><i class="fa-solid fa-shield-halved" style="margin-right:4px"></i>Safekeeping</div><p style="font-size:11px;color:var(--muted);margin-bottom:8px">Export your data to keep it safe, or import a backup to restore your history.</p><div class="backup-btns"><button onclick="exportData()" class="btn-accent btn-sm" style="flex:1"><i class="fa-solid fa-download" style="margin-right:4px"></i>Export</button><label class="btn-ghost btn-sm" style="flex:1;cursor:pointer;text-align:center"><i class="fa-solid fa-upload" style="margin-right:4px"></i>Import<input type="file" accept=".json" style="display:none" onchange="importData(event)"></label></div></div>';
+
   document.getElementById("view-you").innerHTML = html;
 
-  // Bind Events
   document.querySelectorAll(".theme-dot").forEach(function(dot) { dot.addEventListener("click", function() { applyTheme(this.dataset.theme); renderYou(); render(); }); });
   document.querySelectorAll(".del-weight-btn").forEach(function(btn) { btn.addEventListener("click", function() { state.weightLog = state.weightLog.filter(function(w) { return w.date !== btn.dataset.wd; }); save(); toast("Weight removed", "error"); renderYou(); }); });
 
-  // Chart
   if (wl.length > 0) {
     setTimeout(function() {
       var ctx = document.getElementById("wchart"); if (!ctx) return; if (wChart) wChart.destroy();
@@ -856,9 +995,7 @@ function saveWeight() {
 var waterInterval = null, weighInterval = null;
 
 function toggleNotif() {
-  if (state.profile.notifEnabled) {
-    state.profile.notifEnabled = false; clearInterval(waterInterval); clearInterval(weighInterval); save(); toast("Notifications off"); renderYou(); return;
-  }
+  if (state.profile.notifEnabled) { state.profile.notifEnabled = false; clearInterval(waterInterval); clearInterval(weighInterval); save(); toast("Notifications off"); renderYou(); return; }
   if (!("Notification" in window)) { toast("Notifications not supported in this browser", "error"); return; }
   Notification.requestPermission().then(function(perm) {
     if (perm === "granted") { state.profile.notifEnabled = true; save(); startReminders(); toast("Notifications on"); renderYou(); }
@@ -896,11 +1033,16 @@ async function init() {
   try {
     await load();
     applyTheme(state.profile.theme || "mono");
-    if (state.profile.notifEnabled && "Notification" in window && Notification.permission === "granted") startReminders();
-    render();
+    
+    if (!state.isOnboarded) {
+      renderOnboarding();
+    } else {
+      if (state.profile.notifEnabled && "Notification" in window && Notification.permission === "granted") startReminders();
+      switchView("today");
+    }
   } catch(e) {
     console.error("Init error:", e);
-    render();
+    renderOnboarding();
   }
 }
 init();

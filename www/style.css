@@ -95,3 +95,23 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(-
 
 @media(min-width: 481px) { #app { border-left: 1px solid var(--border); border-right: 1px solid var(--border); } }
 @media(prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms!important; transition-duration: .01ms!important; } }
+
+/* ========================================
+   ONBOARDING & BACKUP STYLES
+   ======================================== */
+#view-onboarding { padding: 24px 20px; display: none; flex-direction: column; align-items: center; justify-content: center; min-height: 100%; overflow-y: auto; }
+#view-onboarding.active { display: flex; } /* This fixes the screen not dismissing! */
+
+.onboard-logo { width: 80px; height: 80px; border-radius: 50%; background: var(--accent-dim); border: 2px solid var(--accent); display: flex; align-items: center; justify-content: center; margin-bottom: 20px; }
+.onboard-logo svg { width: 40px; height: 40px; fill: var(--accent); } /* Using SVG instead of FA to guarantee it shows */
+
+.onboard-form { width: 100%; max-width: 360px; }
+.onboard-form .input-group { margin-bottom: 14px; }
+.onboard-form label { display: block; font-size: 12px; font-weight: 600; margin-bottom: 4px; color: var(--muted); }
+.onboard-form .input-field { background: var(--card2); }
+.radio-group { display: flex; gap: 8px; }
+.radio-btn { flex: 1; padding: 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--card); color: var(--muted); font-family: inherit; font-size: 13px; font-weight: 600; cursor: pointer; text-align: center; transition: all .15s; }
+.radio-btn.active { border-color: var(--accent); color: var(--accent); background: var(--accent-dim); }
+
+.backup-card { margin-top: 8px; }
+.backup-btns { display: flex; gap: 8px; margin-top: 10px; }

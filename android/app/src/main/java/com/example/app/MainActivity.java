@@ -1,4 +1,4 @@
-package com.example.app;
+package com.nutrium.app;
 
 import com.getcapacitor.BridgeActivity;
 

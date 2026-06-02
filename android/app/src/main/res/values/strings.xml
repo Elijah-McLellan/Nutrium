@@ -1,7 +1,7 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="app_name">nutrium</string>
-    <string name="title_activity_main">nutrium</string>
-    <string name="package_name">com.example.app</string>
-    <string name="custom_url_scheme">com.example.app</string>
+    <string name="app_name">Nutrium</string>
+    <string name="title_activity_main">Nutrium</string>
+    <string name="package_name">com.nutrium.app</string>
+    <string name="custom_url_scheme">com.nutrium.app</string>
 </resources>
